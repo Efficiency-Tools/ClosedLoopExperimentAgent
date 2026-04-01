@@ -1,7 +1,31 @@
+# Virtual environments
 .venv/
 .venv2/
+.env/
+
+# Python bytecode and caches
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Local study outputs
 runs/
 mlruns/
 *.sqlite3
+
+# Tooling and editor metadata
+.DS_Store
+.idea/
+.vscode/
