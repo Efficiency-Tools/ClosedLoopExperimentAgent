@@ -1,0 +1,32 @@
+objective:
+  name: val_auc
+  direction: maximize
+
+space:
+  optimizer.lr:
+    type: float
+    low: 1e-5
+    high: 5e-4
+    log: true
+  optimizer.weight_decay:
+    type: float
+    low: 1e-6
+    high: 1e-2
+    log: true
+  train.batch_size:
+    type: categorical
+    choices: [8, 16, 32]
+  model.dropout:
+    type: float
+    low: 0.0
+    high: 0.5
+
+constraints:
+  max_trials: 10
+  max_gpu_hours: 120
+  max_consecutive_failures: 3
+  protected_keys:
+    - model.backbone
+    - data.dataset_name
+    - trainer.strategy
+

@@ -1,0 +1,10 @@
+---
+mlflow:
+  experiment_name: closed-loop-experiment-agent
+  tracking_uri: file:./runs/mlruns
+paths:
+  studies_root: runs/studies
+  artifacts_root: runs/artifacts
+runtime:
+  default_timeout_sec: 3600
+  max_retry_seconds: 30

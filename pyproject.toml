@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "closed-loop-experiment-agent"
+version = "0.1.0"
+description = "A controllable closed-loop experiment controller for fixed-direction deep learning research."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+  "langgraph>=0.2.0",
+  "mlflow>=2.14.0",
+  "omegaconf>=2.3.0",
+  "optuna>=4.0.0",
+  "pydantic>=2.7.0",
+  "PyYAML>=6.0.1",
+  "typer>=0.12.0",
+]
+
+[project.scripts]
+clae = "app.main:app"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["config/*.yaml"]
