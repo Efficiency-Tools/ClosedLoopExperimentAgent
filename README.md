@@ -2,18 +2,6 @@
 
 Open-source MVP for controlled experiment loops under a fixed baseline, fixed direction, fixed search space, and fixed budget.
 
-This project is intentionally narrow:
-
-- It proposes trials from a declared search space.
-- It validates proposals against guardrails.
-- It launches a local training command.
-- It parses `results.json`.
-- It logs parent/child runs to MLflow.
-- It updates an Optuna study using ask-and-tell.
-- It stops when budget or guardrails say to stop.
-
-It does not rewrite code, invent new research directions, or act as a general coding agent.
-
 这是一个面向生产的最小可用版本，用于在固定 baseline、固定方向、固定搜索空间和固定预算下运行实验闭环。
 
 这个项目的边界是明确的：
@@ -26,6 +14,7 @@ It does not rewrite code, invent new research directions, or act as a general co
 - 使用 Optuna ask-and-tell 更新搜索状态。
 - 在预算或 guardrail 告知时停止。
 
+It does not rewrite code, invent new research directions, or act as a general coding agent.
 它不会改写任意代码，也不会发明新的研究方向，更不是通用编码代理。
 
 ## Architecture / 架构
@@ -36,12 +25,23 @@ It does not rewrite code, invent new research directions, or act as a general co
 - `app/tracking`: MLflow logging and summary schemas. / MLflow 记录与摘要 schema。
 - `app/analysis`: Metric parsing, failure classification, and heuristic summaries. / 指标解析、失败分类和启发式分析。
 - `app/guards`: Whitelist validation and stop rules. / 白名单校验与停止规则。
+- `app/evaluation`: Benchmark suites and version-to-version comparisons. / 基准套件与版本对比。
 - `examples/toy_pytorch`: A dependency-free toy training target. / 一个无外部深度学习依赖的 toy 训练脚本。
 
 ## Quickstart / 快速开始
 
-1. Install dependencies. / 安装依赖。
-2. Run the toy study. / 运行 toy study。
+1. Create a Python 3.11+ environment.
+2. Install the project in editable mode.
+3. Run the toy study.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+clae --help
+```
+
+Run the toy study:
 
 ```bash
 python -m app.main launch-study \
@@ -53,6 +53,30 @@ python -m app.main launch-study \
   --tracking-uri file:./runs/mlruns \
   --mlflow-experiment-name closed-loop-experiment-agent \
   --train-command "python examples/toy_pytorch/train.py --config {config_path} --output-dir {run_dir}"
+```
+
+Or use the installed CLI directly:
+
+```bash
+clae launch-study \
+  --baseline-config examples/toy_pytorch/baseline.yaml \
+  --search-space examples/toy_pytorch/search_space.yaml \
+  --study-name toy-study \
+  --study-dir runs/toy-study \
+  --storage-path runs/toy-study/optuna.sqlite3 \
+  --tracking-uri file:./runs/mlruns \
+  --mlflow-experiment-name closed-loop-experiment-agent \
+  --train-command "python examples/toy_pytorch/train.py --config {config_path} --output-dir {run_dir}"
+```
+
+Run a benchmark suite and compare against a previous version:
+
+```bash
+clae evaluate-system \
+  --suite-path examples/evaluation/toy_suite.yaml \
+  --output-dir runs/evaluations/toy-suite \
+  --version-tag v2.0.0 \
+  --reference-report runs/evaluations/toy-suite/toy-suite_evaluation.json
 ```
 
 The toy example writes:
@@ -71,6 +95,87 @@ toy example 会写出：
 - stdout/stderr 日志
 - 一个 MLflow parent run 和多个 child run
 
+## Installation / 安装
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+If you prefer not to activate the environment, use `.venv/bin/python` or `.venv/bin/clae`.
+
+## Usage / 使用方法
+
+### 1. Prepare the baseline config
+
+Start from [examples/toy_pytorch/baseline.yaml](examples/toy_pytorch/baseline.yaml) and replace the values with your own model, optimizer, and training defaults.
+
+### 2. Define the search space
+
+Edit [examples/toy_pytorch/search_space.yaml](examples/toy_pytorch/search_space.yaml) or create your own file with:
+
+- `objective.name`
+- `objective.direction`
+- `space.*` tunable parameters
+- `constraints.*` budgets and guardrails
+
+Only parameters declared in `space` are mutable. Protected keys are never touched.
+
+### 3. Make your training script obey the contract
+
+Your training command must accept:
+
+- `--config {config_path}`
+- `--output-dir {run_dir}`
+
+It must write `results.json` into the output directory. The expected payload includes:
+
+- `status`: `success` or `failed`
+- `primary_metric`
+- `metrics`
+- optional `notes`
+
+The toy example in [examples/toy_pytorch/train.py](examples/toy_pytorch/train.py) shows the contract.
+
+### 4. Launch the study
+
+```bash
+clae launch-study \
+  --baseline-config path/to/baseline.yaml \
+  --search-space path/to/search_space.yaml \
+  --study-name my-study \
+  --study-dir runs/my-study \
+  --storage-path runs/my-study/optuna.sqlite3 \
+  --tracking-uri file:./runs/mlruns \
+  --mlflow-experiment-name my-experiment \
+  --train-command "python train.py --config {config_path} --output-dir {run_dir}"
+```
+
+### 5. Inspect outputs
+
+Each study writes:
+
+- `state.json`
+- `final_summary.json`
+- `artifacts/`
+- `optuna.sqlite3`
+- MLflow runs under the tracking URI you chose
+
+## Evaluation / 评测
+
+Use `evaluate-system` to run a benchmark suite and optionally compare against a saved report:
+
+```bash
+clae evaluate-system \
+  --suite-path examples/evaluation/toy_suite.yaml \
+  --output-dir runs/evaluations/toy-suite \
+  --version-tag v2.0.0 \
+  --reference-report runs/evaluations/toy-suite/toy-suite_evaluation.json
+```
+
+The suite file is a YAML list of cases, each case pointing at a baseline config, a search space, and a training command.
+
 ## Search Space Contract / 搜索空间约定
 
 The search-space YAML declares:
@@ -79,6 +184,7 @@ The search-space YAML declares:
 - `objective.direction`
 - `space.*` parameters
 - `constraints.*` limits
+- Optional loss supervision hints such as `constraints.loss_metric_keys` and `constraints.max_loss_value`
 
 Only parameters declared in `space` are mutable. Protected keys are never touched.
 
@@ -96,6 +202,23 @@ Only parameters declared in `space` are mutable. Protected keys are never touche
 The Optuna study uses SQLite storage. Trial artifacts are written to per-trial directories under the study root, and state is persisted to JSON so the loop can resume between trials.
 
 Optuna study 使用 SQLite 存储。每个 trial 的产物会写入 study 目录下的独立子目录，状态会持久化为 JSON，方便中断后恢复。
+
+## Repository Layout / 仓库结构
+
+- `app/graph`: LangGraph controller state, nodes, and edges.
+- `app/optimizer`: Optuna ask-and-tell wrapper and search-space parsing.
+- `app/runner`: Local experiment execution.
+- `app/tracking`: MLflow logging and summary schemas.
+- `app/analysis`: Metric parsing, failure classification, and heuristic summaries.
+- `app/guards`: Whitelist validation and stop rules.
+- `app/evaluation`: Benchmark suites and version-to-version comparisons.
+- `examples/toy_pytorch`: A dependency-free toy training target.
+
+## Notes for contributors / 提交前注意事项
+
+- Do not commit `runs/`, `mlruns/`, SQLite databases, or cache directories.
+- Keep training scripts compatible with the `results.json` contract.
+- Use `clae --help` to inspect the available commands.
 
 ## License / 许可证
 

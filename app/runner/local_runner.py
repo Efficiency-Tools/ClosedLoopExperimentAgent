@@ -10,6 +10,7 @@ import os
 import shlex
 import subprocess
 import time
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ class LocalExperimentRunner:
             part.format(config_path=str(config_path), run_dir=str(run_dir))
             for part in self.command_template
         ]
+        if rendered and rendered[0] in {"python", "python3"}:
+            rendered[0] = sys.executable
         return rendered
 
     def run(self, config_path: Path, run_dir: Path, timeout_sec: float) -> ExecutionOutcome:

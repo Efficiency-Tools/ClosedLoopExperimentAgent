@@ -10,7 +10,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-import mlflow
+try:
+    import mlflow
+    from mlflow.tracking import MlflowClient
+except ModuleNotFoundError:  # pragma: no cover
+    mlflow = None  # type: ignore[assignment]
+    MlflowClient = None  # type: ignore[assignment]
 
 from app.tracking.schemas import StudySummary, TrialTrackingRecord
 
@@ -23,19 +28,37 @@ class MlflowTracker:
         self.experiment_name = experiment_name
         self.artifact_root = Path(artifact_root)
         self.parent_run_id: str | None = None
+        self.enabled = mlflow is not None and MlflowClient is not None
+        self.client = MlflowClient(tracking_uri=tracking_uri) if self.enabled else None
+        self.experiment_id: str | None = None
 
-        mlflow.set_tracking_uri(tracking_uri)
-        mlflow.set_experiment(experiment_name)
+        if self.enabled:
+            assert mlflow is not None
+            mlflow.set_tracking_uri(tracking_uri)
+            mlflow.set_experiment(experiment_name)
+            experiment = mlflow.get_experiment_by_name(experiment_name)
+            if experiment is None:
+                raise RuntimeError(f"MLflow experiment not found: {experiment_name}")
+            self.experiment_id = experiment.experiment_id
 
     @contextmanager
     def study_run(self, tags: dict[str, str]) -> Iterator[str]:
         """Open the parent run for the whole study session."""
 
-        with mlflow.start_run(run_name=tags.get("study_name", "study"), nested=False) as run:
-            self.parent_run_id = run.info.run_id
-            for key, value in tags.items():
-                mlflow.set_tag(key, value)
+        if not self.enabled or self.client is None or self.experiment_id is None:
+            self.parent_run_id = f"local-{tags.get('study_name', 'study')}"
             yield self.parent_run_id
+            return
+
+        run = self.client.create_run(
+            experiment_id=self.experiment_id,
+            tags={**tags, "mlflow.runName": tags.get("study_name", "study")},
+        )
+        self.parent_run_id = run.info.run_id
+        try:
+            yield self.parent_run_id
+        finally:
+            self.client.set_terminated(self.parent_run_id, status="FINISHED")
 
     def _require_parent(self) -> None:
         if self.parent_run_id is None:
@@ -51,31 +74,40 @@ class MlflowTracker:
     ) -> None:
         """Log a child run for one trial."""
 
+        if not self.enabled or self.client is None or self.experiment_id is None:
+            return
         self._require_parent()
-        with mlflow.start_run(
-            run_name=f"trial-{record.trial_number}",
-            nested=True,
-            tags={"trial_number": str(record.trial_number)},
-        ):
-            mlflow.log_params({k: json.dumps(v) if isinstance(v, (dict, list)) else v for k, v in record.params.items()})
-            mlflow.log_metrics(
-                {k: float(v) for k, v in record.metrics.items() if isinstance(v, (int, float))}
-            )
-            mlflow.set_tag("status", record.status)
-            mlflow.log_artifact(str(config_path), artifact_path="trial")
-            if results_path and results_path.exists():
-                mlflow.log_artifact(str(results_path), artifact_path="trial")
-            if analysis_path and analysis_path.exists():
-                mlflow.log_artifact(str(analysis_path), artifact_path="trial")
-            if extra_artifacts:
-                for name, path in extra_artifacts.items():
-                    if path.exists():
-                        mlflow.log_artifact(str(path), artifact_path=name)
+        child = self.client.create_run(
+            experiment_id=self.experiment_id,
+            tags={
+                "mlflow.parentRunId": self.parent_run_id,
+                "mlflow.runName": f"trial-{record.trial_number}",
+                "trial_number": str(record.trial_number),
+                "status": record.status,
+            },
+        )
+        run_id = child.info.run_id
+        for key, value in record.params.items():
+            self.client.log_param(run_id, key, json.dumps(value) if isinstance(value, (dict, list)) else value)
+        for key, value in record.metrics.items():
+            if isinstance(value, (int, float)):
+                self.client.log_metric(run_id, key, float(value))
+        self.client.log_artifact(run_id, str(config_path), artifact_path="trial")
+        if results_path and results_path.exists():
+            self.client.log_artifact(run_id, str(results_path), artifact_path="trial")
+        if analysis_path and analysis_path.exists():
+            self.client.log_artifact(run_id, str(analysis_path), artifact_path="trial")
+        if extra_artifacts:
+            for name, path in extra_artifacts.items():
+                if path.exists():
+                    self.client.log_artifact(run_id, str(path), artifact_path=name)
+        self.client.set_terminated(run_id, status="FINISHED")
 
     def log_study_summary(self, summary: StudySummary, summary_path: Path) -> None:
         """Log the final study summary to the parent run."""
 
+        if not self.enabled or self.client is None or self.experiment_id is None:
+            return
         self._require_parent()
-        mlflow.log_artifact(str(summary_path), artifact_path="study")
-        mlflow.set_tag("study_completed", "true")
-        mlflow.log_dict(summary.model_dump(), "study_summary.json")
+        self.client.log_artifact(self.parent_run_id, str(summary_path), artifact_path="study")
+        self.client.set_tag(self.parent_run_id, "study_completed", "true")

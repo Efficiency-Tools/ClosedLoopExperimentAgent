@@ -1,31 +1,46 @@
 # Virtual environments
 .venv/
 .venv2/
+.venv*/
 .env/
+.python-version
 
 # Python bytecode and caches
 __pycache__/
+*/__pycache__/
 *.py[cod]
 *.pyd
 .pytest_cache/
+.pytest_cache*/
 .mypy_cache/
 .ruff_cache/
 .coverage
 .coverage.*
 htmlcov/
+*.log
+*.tmp
+*.bak
+.ipynb_checkpoints/
 
 # Build and packaging artifacts
 build/
 dist/
+site/
 *.egg-info/
+*.egg
 pip-wheel-metadata/
+*.whl
 
 # Local study outputs
 runs/
 mlruns/
 *.sqlite3
+*.sqlite
+*.db
+artifacts/
 
 # Tooling and editor metadata
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/

@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from omegaconf import OmegaConf
 from pydantic import BaseModel, Field
 
 
@@ -32,6 +31,8 @@ class ConstraintsSpec(BaseModel):
     max_gpu_hours: float = 0.0
     max_consecutive_failures: int = 3
     protected_keys: list[str] = Field(default_factory=list)
+    loss_metric_keys: list[str] = Field(default_factory=list)
+    max_loss_value: float | None = None
 
 
 class SearchSpaceConfig(BaseModel):
@@ -76,5 +77,13 @@ def unflatten_dict(payload: dict[str, Any]) -> dict[str, Any]:
 def apply_overrides(baseline_config: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
     """Merge dotted-key overrides into a baseline config."""
 
-    merged = OmegaConf.merge(OmegaConf.create(copy.deepcopy(baseline_config)), OmegaConf.create(unflatten_dict(overrides)))
-    return OmegaConf.to_container(merged, resolve=True)  # type: ignore[return-value]
+    def _merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+        merged = copy.deepcopy(base)
+        for key, value in patch.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = _merge(merged[key], value)
+            else:
+                merged[key] = copy.deepcopy(value)
+        return merged
+
+    return _merge(copy.deepcopy(baseline_config), unflatten_dict(overrides))

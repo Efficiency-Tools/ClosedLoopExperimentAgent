@@ -25,8 +25,10 @@ constraints:
   max_trials: 10
   max_gpu_hours: 120
   max_consecutive_failures: 3
+  max_loss_value: 10.0
+  loss_metric_keys:
+    - train_loss_final
   protected_keys:
     - model.backbone
     - data.dataset_name
     - trainer.strategy
-

@@ -237,12 +237,6 @@ def update_study(state: dict[str, Any], *, deps: dict[str, Any]) -> dict[str, An
         run_dir=str(trial_dir),
         analysis=state_obj.current_analysis or {},
     )
-    deps["tracker"].log_trial(
-        record=record,
-        config_path=trial_dir / "config.yaml",
-        results_path=trial_dir / "results.json",
-        analysis_path=trial_dir / "analysis.json",
-    )
     summary = StudySummary(
         study_id=state_obj.study_id,
         objective_name=state_obj.objective_name,
@@ -256,6 +250,13 @@ def update_study(state: dict[str, Any], *, deps: dict[str, Any]) -> dict[str, An
     summary_path = Path(state_obj.study_dir) / "study_summary.json"
     summary_path.write_text(summary.model_dump_json(indent=2))
     state_obj.history_summary["summary_path"] = str(summary_path)
+    deps["background"].submit(
+        deps["tracker"].log_trial,
+        record=record,
+        config_path=trial_dir / "config.yaml",
+        results_path=trial_dir / "results.json",
+        analysis_path=trial_dir / "analysis.json",
+    )
     save_state(state_obj, _state_path(state_obj))
     return state_obj.model_dump()
 
@@ -264,10 +265,18 @@ def decide_next_action(state: dict[str, Any], *, deps: dict[str, Any]) -> dict[s
     """Compute the next loop decision from the current state."""
 
     state_obj = LoopState.model_validate(state)
+    analysis = state_obj.current_analysis or {}
+    training_health = analysis.get("training_health") or {}
     if budget_exhausted(state_obj):
+        state_obj.decision = "stop"
+    elif training_health.get("stop_now"):
         state_obj.decision = "stop"
     elif too_many_failures(state_obj):
         state_obj.decision = "human_review"
+    elif training_health.get("recommendation") == "human_review":
+        state_obj.decision = "human_review"
+    elif training_health.get("recommendation") == "stop":
+        state_obj.decision = "stop"
     elif state_obj.current_analysis and state_obj.current_analysis.get("plateau_signal"):
         state_obj.decision = "human_review"
     else:

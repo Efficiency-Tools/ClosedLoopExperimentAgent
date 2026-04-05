@@ -5,28 +5,16 @@
 
 from __future__ import annotations
 
-import json
-import shlex
 from pathlib import Path
 from typing import Annotated
 
 import typer
-import yaml
 
-from app.graph.build_graph import build_graph
-from app.graph.state import LoopState, load_state, save_state
-from app.optimizer.optuna_engine import OptunaEngine
-from app.optimizer.search_space import load_search_space
-from app.runner.local_runner import LocalExperimentRunner
-from app.tracking.mlflow_client import MlflowTracker
-from app.tracking.schemas import StudySummary
+from app.evaluation.evaluator import EvaluationRunOptions, evaluate_suite, load_suite
+from app.study.executor import StudyRunInputs, run_closed_loop_study
 
 
 app = typer.Typer(add_completion=False, help="Closed-loop experiment controller.")
-
-
-def _load_yaml(path: Path) -> dict:
-    return yaml.safe_load(path.read_text())
 
 
 @app.callback()
@@ -48,89 +36,48 @@ def launch_study(
 ) -> None:
     """Run the study loop until the stopping condition is met."""
 
-    study_dir.mkdir(parents=True, exist_ok=True)
-    baseline_data = _load_yaml(baseline_config)
-    search_space_data = load_search_space(search_space)
-    storage_url = f"sqlite:///{storage_path}"
-    engine = OptunaEngine(
-        study_name=study_name,
-        storage_url=storage_url,
-        search_space=search_space_data,
-    )
-    runner = LocalExperimentRunner(shlex.split(train_command))
-    tracker = MlflowTracker(
-        tracking_uri=tracking_uri,
-        experiment_name=mlflow_experiment_name,
-        artifact_root=str(study_dir / "artifacts"),
-    )
-
-    state_path = study_dir / "state.json"
-
-    def _load_state():
-        existing = load_state(state_path)
-        if existing is not None:
-            return existing
-        return None
-
-    runtime = {
-        "study_id": study_name,
-        "study_name": study_name,
-        "study_dir": str(study_dir),
-        "baseline_config": baseline_data,
-        "search_space": search_space_data,
-        "storage_url": storage_url,
-        "tracking_uri": tracking_uri,
-        "mlflow_experiment_name": mlflow_experiment_name,
-        "training_command": shlex.split(train_command),
-        "timeout_sec": timeout_sec,
-        "engine": engine,
-        "runner": runner,
-        "tracker": tracker,
-        "load_state": _load_state,
-    }
-    graph = build_graph(runtime)
-    initial_state = LoopState(
-        study_id=study_name,
-        objective_name=search_space_data.objective.name,
-        direction=search_space_data.objective.direction,
-        budget_total_trials=search_space_data.constraints.max_trials,
-        budget_gpu_hours=search_space_data.constraints.max_gpu_hours,
-        baseline_config=baseline_data,
-        search_space={name: spec.model_dump() for name, spec in search_space_data.space.items()},
-        constraints=search_space_data.constraints.model_dump(),
-        study_name=study_name,
-        study_dir=str(study_dir),
-        storage_url=storage_url,
-        tracking_uri=tracking_uri,
-        mlflow_experiment_name=mlflow_experiment_name,
-        training_command=shlex.split(train_command),
-        timeout_sec=timeout_sec,
-    )
-    save_state(initial_state, state_path)
-
-    with tracker.study_run(
-        tags={
-            "study_name": study_name,
-            "objective_name": search_space_data.objective.name,
-            "direction": search_space_data.objective.direction,
-        }
-    ):
-        final_state = graph.invoke(initial_state.model_dump())
-        final_state_obj = LoopState.model_validate(final_state)
-        summary = StudySummary(
-            study_id=final_state_obj.study_id,
-            objective_name=final_state_obj.objective_name,
-            direction=final_state_obj.direction,
-            total_trials=final_state_obj.budget_used_trials,
-            completed_trials=final_state_obj.history_summary.get("completed_trials", 0),
-            failed_trials=final_state_obj.history_summary.get("failed_trials", 0),
-            best_trial=final_state_obj.best_trial,
-            notes=f"decision={final_state_obj.decision}",
+    result = run_closed_loop_study(
+        StudyRunInputs(
+            baseline_config_path=baseline_config,
+            search_space_path=search_space,
+            study_name=study_name,
+            study_dir=study_dir,
+            storage_path=storage_path,
+            tracking_uri=tracking_uri,
+            mlflow_experiment_name=mlflow_experiment_name,
+            train_command=train_command,
+            timeout_sec=timeout_sec,
         )
-        summary_path = study_dir / "final_summary.json"
-        summary_path.write_text(summary.model_dump_json(indent=2))
-        tracker.log_study_summary(summary, summary_path)
-        typer.echo(summary.model_dump_json(indent=2))
+    )
+    typer.echo(result.summary.model_dump_json(indent=2))
+
+
+@app.command("evaluate-system")
+def evaluate_system(
+    suite_path: Annotated[Path, typer.Option(exists=True, readable=True, help="Benchmark suite YAML.")],
+    output_dir: Annotated[Path, typer.Option(help="Directory for evaluation artifacts.")],
+    version_tag: Annotated[str | None, typer.Option(help="Version tag for this run.")] = None,
+    reference_report: Annotated[
+        Path | None,
+        typer.Option(exists=True, readable=True, help="Previous evaluation report."),
+    ] = None,
+    max_workers: Annotated[int, typer.Option(help="Parallel benchmark workers.")] = 2,
+) -> None:
+    """Run a benchmark suite and optionally compare it to an earlier report."""
+
+    suite = load_suite(suite_path)
+    report = evaluate_suite(
+        EvaluationRunOptions(
+            suite=suite,
+            output_dir=output_dir,
+            version_tag=version_tag,
+            reference_report=reference_report,
+            max_workers=max_workers,
+        )
+    )
+    report_path = output_dir / f"{suite.suite_name}_evaluation.json"
+    report_path.write_text(report.model_dump_json(indent=2))
+    typer.echo(report.model_dump_json(indent=2))
 
 
 if __name__ == "__main__":

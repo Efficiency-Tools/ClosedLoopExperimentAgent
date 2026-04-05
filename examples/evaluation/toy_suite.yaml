@@ -1,0 +1,15 @@
+suite_name: toy-suite
+version_tag: baseline
+
+cases:
+  - name: toy_smoke
+    baseline_config: examples/toy_pytorch/baseline.yaml
+    search_space: examples/toy_pytorch/search_space.yaml
+    train_command: "python examples/toy_pytorch/train.py --config {config_path} --output-dir {run_dir}"
+    timeout_sec: 30
+
+  - name: toy_full
+    baseline_config: examples/toy_pytorch/baseline.yaml
+    search_space: examples/toy_pytorch/search_space.yaml
+    train_command: "python examples/toy_pytorch/train.py --config {config_path} --output-dir {run_dir}"
+    timeout_sec: 30

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.analysis.failure_parser import classify_failure
+from app.analysis.supervisor import assess_training_health
 from app.graph.state import LoopState, RunResult
 
 
@@ -29,6 +30,7 @@ class AnalysisOutcome:
 def analyze_result(state: LoopState, result: RunResult) -> AnalysisOutcome:
     """Produce a deterministic analysis without any LLM involvement."""
 
+    training_health = assess_training_health(state, result)
     best_value = state.best_trial.get("value") if state.best_trial else None
     improved = False
     if result.status == "success" and result.primary_metric is not None and best_value is not None:
@@ -42,7 +44,11 @@ def analyze_result(state: LoopState, result: RunResult) -> AnalysisOutcome:
     plateau_signal = state.plateau_count >= 3 and not improved
     failure_category = classify_failure(result)
     recommendation = "continue"
-    if result.status != "success":
+    if training_health.stop_now:
+        recommendation = "stop"
+    elif not training_health.trained:
+        recommendation = "investigate_failure"
+    elif result.status != "success":
         recommendation = "investigate_failure"
     elif plateau_signal:
         recommendation = "consider_stop_or_review"
@@ -61,11 +67,12 @@ def analyze_result(state: LoopState, result: RunResult) -> AnalysisOutcome:
         recommendation=recommendation,
         payload={
             "status": result.status,
-            "failure_category": failure_category,
-            "primary_metric": result.primary_metric,
-            "improved": improved,
-            "plateau_signal": plateau_signal,
-            "summary": summary,
-            "recommendation": recommendation,
-        },
+        "failure_category": failure_category,
+        "primary_metric": result.primary_metric,
+        "training_health": training_health.payload,
+        "improved": improved,
+        "plateau_signal": plateau_signal,
+        "summary": summary,
+        "recommendation": recommendation,
+    },
     )
