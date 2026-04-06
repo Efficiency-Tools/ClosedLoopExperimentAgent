@@ -19,6 +19,70 @@ It does not rewrite code, invent new research directions, or act as a general co
 
 ## Architecture / 架构
 
+```text
+   +------------------+
+   |   Launch study   |
+   +------------------+
+            |
+            v
+   +------------------+
+   | Init study state |
+   +------------------+
+            |
+            v
+   +------------------------+
+   | Ask Optuna for a trial |
+   +------------------------+
+            |
+            v
+   +----------------------+
+   | Validate proposal    |
+   +----------------------+
+        |             |
+        | invalid     | valid
+        v             v
+ +----------------+   +------------------+
+ | Analyze invalid|   | Start training   |
+ | proposal       |   +------------------+
+ +----------------+            |
+                                v
+                    +---------------------------+
+                    | Watchdog monitors logs    |
+                    +---------------------------+
+                       |                   |
+                       | loss is fine     | error / bad loss
+                       v                   v
+              +----------------+   +------------------+
+              | Collect metrics |   | Analyze failure  |
+              +----------------+   +------------------+
+                       |                   |
+                       v                   v
+              +--------------------+  +----------------------+
+              | Deterministic      |  | Repair proposal /    |
+              | analysis           |  | config               |
+              +--------------------+  +----------------------+
+                       |                   |
+                       v                   |
+              +--------------------+       |
+              | Update Optuna +    |       |
+              | tracking           |       |
+              +--------------------+       |
+                       |                   |
+                       v                   |
+              +---------------------------+
+              | Stop condition met?       |
+              +---------------------------+
+                       |           |
+                       | no        | yes
+                       v           v
+                 back to trial   +-------------------+
+                                 | Write final       |
+                                 | summary           |
+                                 +-------------------+
+```
+
+Core responsibilities:
+
 - `app/graph`: LangGraph controller state, nodes, and edges. / LangGraph 控制器状态、节点和边。
 - `app/optimizer`: Optuna ask-and-tell wrapper and search-space parsing. / Optuna ask-and-tell 封装与搜索空间解析。
 - `app/runner`: Local experiment execution. / 本地实验执行。
@@ -54,6 +118,15 @@ python -m app.main launch-study \
   --mlflow-experiment-name closed-loop-experiment-agent \
   --train-command "python examples/toy_pytorch/train.py --config {config_path} --output-dir {run_dir}"
 ```
+
+### Qwen3-ASR / Qwen3-ASR 接入
+
+For the Qwen3-ASR workspace, use the adapter example in
+[examples/qwen3_asr/README.md](examples/qwen3_asr/README.md). It wraps the
+Qwen3-ASR training script, evaluates the selected checkpoint on dev, and
+writes a `results.json` file that CLAE can consume.
+
+Qwen3-ASR 示例见 [examples/qwen3_asr/README.md](examples/qwen3_asr/README.md)。
 
 Or use the installed CLI directly:
 

@@ -134,10 +134,11 @@ def launch_trial(state: dict[str, Any], *, deps: dict[str, Any]) -> dict[str, An
 
     config_path.write_text(yaml.safe_dump(trial_config, sort_keys=False))
     outcome: ExecutionOutcome = deps["runner"].run(config_path=config_path, run_dir=trial_dir, timeout_sec=state_obj.timeout_sec)
-    state_obj.run_dir = str(trial_dir)
+    state_obj.run_dir = str(outcome.run_dir)
     state_obj.history_summary = {**state_obj.history_summary, "last_command": outcome.command}
     state_obj.current_execution = {
         "run_dir": outcome.run_dir,
+        "root_run_dir": str(trial_dir),
         "config_path": outcome.config_path,
         "command": outcome.command,
         "returncode": outcome.returncode,
@@ -154,6 +155,7 @@ def launch_trial(state: dict[str, Any], *, deps: dict[str, Any]) -> dict[str, An
             "timed_out": outcome.timed_out,
             "stdout_path": outcome.stdout_path,
             "stderr_path": outcome.stderr_path,
+            "watchdog_history": (outcome.extra or {}).get("watchdog_history", []),
         }
     }
     save_state(state_obj, _state_path(state_obj))

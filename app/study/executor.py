@@ -53,7 +53,10 @@ def run_closed_loop_study(inputs: StudyRunInputs, *, background_workers: int = 4
         storage_url=storage_url,
         search_space=search_space_data,
     )
-    runner = LocalExperimentRunner(shlex.split(inputs.train_command))
+    runner = LocalExperimentRunner(
+        shlex.split(inputs.train_command),
+        watchdog_loss_threshold=search_space_data.constraints.max_loss_value,
+    )
     background = BackgroundTaskManager(max_workers=background_workers)
     tracker = MlflowTracker(
         tracking_uri=inputs.tracking_uri,
