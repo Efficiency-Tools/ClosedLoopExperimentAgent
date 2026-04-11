@@ -45,12 +45,12 @@ It does not rewrite code, invent new research directions, or act as a general co
  | Analyze invalid|   | Start training   |
  | proposal       |   +------------------+
  +----------------+            |
-                                v
+                               v
                     +---------------------------+
                     | Watchdog monitors logs    |
                     +---------------------------+
                        |                   |
-                       | loss is fine     | error / bad loss
+                       | loss is fine      | error / bad loss
                        v                   v
               +----------------+   +------------------+
               | Collect metrics |   | Analyze failure  |
